@@ -7,7 +7,7 @@ A multi-tenant queue management and appointment booking platform uniting advance
 ### Platform & Tenancy
 
 **Platform**:
-A deployed NextTurn instance owned and operated by the Platform Owner.
+A deployed NextTurn instance owned and operated by the Platform Owner (Vietnamese UI: *Nền tảng*).
 _Avoid_: System, App
 
 **Platform Owner**:
@@ -15,7 +15,7 @@ The organization that owns and commissions the Platform.
 _Avoid_: Customer (as acquirer), Sponsor, Client
 
 **Platform Administrator**:
-Platform Owner personnel responsible for approving, configuring, and monitoring Tenants across the Platform.
+Platform Owner personnel responsible for approving, configuring, and monitoring Tenants across the Platform (Vietnamese UI: *Quản trị viên nền tảng*).
 _Avoid_: SuperAdmin, System Admin
 
 **Business**:
@@ -23,21 +23,21 @@ A service organization using the Platform to manage customer appointments and wa
 _Avoid_: Company, Merchant, Store
 
 **Tenant**:
-An isolated operational workspace representing a single Business on the Platform, currently mapped one-to-one with a Business.
+An isolated operational workspace representing a single Business on the Platform, currently mapped one-to-one with a Business (Vietnamese UI: *Cơ sở*; Tenant identifier label: *Mã cơ sở*).
 _Avoid_: Organization, Workspace, Account
 
 ### Tenant Personnel
 
 **Tenant Administrator**:
-Business personnel with full administrative authority over a Tenant's services, staff, shift schedules, counters, and settings.
+Business personnel with full administrative authority over a Tenant's services, staff, shift schedules, counters, and settings (Vietnamese UI: *Quản trị viên cơ sở*).
 _Avoid_: Business Owner, Org Admin
 
 **Tenant Staff**:
-Business personnel assigned within a Tenant, encompassing both Counter Staff and Service Staff.
+Business personnel assigned within a Tenant, encompassing both Counter Staff and Service Staff (Vietnamese UI: *Nhân sự*).
 _Avoid_: Employee, Worker
 
 **Counter Staff**:
-Tenant Staff who operate reception Counters to check in Booking Customers, issue or advance Queue Tickets, and serve End-users.
+Tenant Staff who operate reception Counters to check in Booking Customers, issue or advance Queue Tickets, and serve End-users (Vietnamese UI: *Nhân viên quầy*).
 _Avoid_: Receptionist, Desk Agent
 
 **Service Staff**:
