@@ -26,6 +26,24 @@ _Avoid_: Company, Merchant, Store
 An isolated operational workspace representing a single Business on the Platform, currently mapped one-to-one with a Business (Vietnamese UI: *Cơ sở*; Tenant identifier label: *Mã cơ sở*).
 _Avoid_: Organization, Workspace, Account
 
+**Tenant Registration**:
+A public application submitted by a Business to join the Platform, creating a Tenant that a Platform Administrator must approve before it becomes active.
+_Avoid_: Signup, tenant signup
+
+### Access & Integration
+
+**Widget**:
+The embeddable booking interface a Business integrates into its own website so End-users can book Services and join Queues there.
+_Avoid_: Plugin, embed
+
+**Widget Key**:
+The public identifier a Widget presents to the Platform, paired with a non-client-exposed Widget Secret Key.
+_Avoid_: Public key, API key
+
+**Identity Provider**:
+An external authentication provider (Google, Microsoft Entra, OIDC, or SAML) linked to a Tenant so its personnel can sign in with corporate credentials.
+_Avoid_: SSO provider
+
 ### Tenant Personnel
 
 **Tenant Administrator**:
@@ -33,7 +51,7 @@ Business personnel with full administrative authority over a Tenant's services, 
 _Avoid_: Business Owner, Org Admin
 
 **Tenant Staff**:
-Business personnel assigned within a Tenant, encompassing both Counter Staff and Service Staff (Vietnamese UI: *Nhân sự*).
+All Business personnel recorded within a Tenant, encompassing the Tenant Administrator, Counter Staff, and Service Staff (Vietnamese UI: *Nhân sự*).
 _Avoid_: Employee, Worker
 
 **Counter Staff**:
@@ -80,6 +98,10 @@ _Avoid_: Roster, Timetable
 A discrete bookable time window matching a Service's standard duration, whose capacity reflects active staff scheduled to cover it.
 _Avoid_: Slot, Window
 
+**Slot Holding**:
+A temporary exclusive reservation of a Time Slot during End-user checkout, released automatically on expiry or manually before an Appointment is confirmed.
+_Avoid_: Hold, reservation
+
 **Appointment**:
 A confirmed advance reservation for a specific Service and Time Slot held by a Booking Customer prior to queue check-in.
 _Avoid_: Booking, Reservation
@@ -89,5 +111,5 @@ An ordered waiting stream scoped per Service that ingests both Walk-in Customers
 _Avoid_: Line, Waitlist
 
 **Queue Ticket**:
-A numbered turn issued to an End-user in a Service Queue, progressing through waiting, calling, serving, hold, skip, transfer, completed, and no-show states.
+A numbered turn issued to an End-user in a Service Queue, occupying the waiting, calling, serving, completed, or no-show states and moved between them by counter operations such as hold, skip, and transfer.
 _Avoid_: Token, Number, Slip
