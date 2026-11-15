@@ -1,14 +1,26 @@
 import 'server-only';
 
+import { cookies } from 'next/headers';
 import type { NextResponse } from 'next/server';
 
-import type { AuthUserSummary, BackendAuthTokenData } from '@/features/auth/auth-session.schema';
+import {
+  authUserSummarySchema,
+  type AuthUserSummary,
+  type BackendAuthTokenData,
+  computePortalDestination,
+} from '@/features/auth/auth-session.schema';
 
 export const authCookieNames = {
   accessToken: 'nt_access_token',
   refreshToken: 'nt_refresh_token',
   sessionMeta: 'nt_session_meta',
 } as const;
+
+export interface ServerAuthCookies {
+  accessToken: string | null;
+  refreshToken: string | null;
+  session: AuthUserSummary | null;
+}
 
 function getBaseCookieOptions() {
   return {
@@ -68,4 +80,54 @@ export function clearSessionCookies(response: NextResponse): void {
   response.cookies.set(authCookieNames.accessToken, '', expiredOptions);
   response.cookies.set(authCookieNames.refreshToken, '', expiredOptions);
   response.cookies.set(authCookieNames.sessionMeta, '', expiredOptions);
+}
+
+/**
+ * Parses server-side request cookies without exposing token values to client components.
+ */
+export async function getServerAuthCookies(): Promise<ServerAuthCookies> {
+  const cookieStore = await cookies();
+  const accessToken = cookieStore.get(authCookieNames.accessToken)?.value?.trim() || null;
+  const refreshToken = cookieStore.get(authCookieNames.refreshToken)?.value?.trim() || null;
+  const rawMeta = cookieStore.get(authCookieNames.sessionMeta)?.value;
+
+  if (!rawMeta) {
+    return { accessToken, refreshToken, session: null };
+  }
+
+  try {
+    const parsedJson: unknown = JSON.parse(rawMeta);
+    const parsedSession = authUserSummarySchema.safeParse(parsedJson);
+    if (!parsedSession.success) {
+      return { accessToken, refreshToken, session: null };
+    }
+
+    const destination = computePortalDestination(
+      parsedSession.data.primaryRole,
+      parsedSession.data.tenantCode
+    );
+    if (!destination) {
+      return { accessToken, refreshToken, session: null };
+    }
+
+    return {
+      accessToken,
+      refreshToken,
+      session: parsedSession.data,
+    };
+  } catch {
+    return { accessToken, refreshToken, session: null };
+  }
+}
+
+/**
+ * Returns authenticated staff user metadata when access token and session cookies are present.
+ */
+export async function getServerSession(): Promise<AuthUserSummary | null> {
+  const { accessToken, session } = await getServerAuthCookies();
+  if (!accessToken || !session) {
+    return null;
+  }
+
+  return session;
 }
