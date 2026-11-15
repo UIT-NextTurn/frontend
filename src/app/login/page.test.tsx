@@ -1,0 +1,109 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+import { TenantSelectionForm } from '@/features/auth/tenant-selection-form';
+
+import LoginPage from './page';
+
+describe('/login Tenant Selection', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('renders semantic landmarks, Vietnamese copy, and 48px touch-target controls', () => {
+    render(<LoginPage />);
+
+    expect(screen.getByRole('main')).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Đăng nhập nhân sự' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Nhập mã cơ sở để chuyển đến cổng đăng nhập dành cho Quản trị viên cơ sở và Nhân viên quầy.'
+      )
+    ).toBeInTheDocument();
+
+    const input = screen.getByLabelText('Mã cơ sở');
+    expect(input).toHaveAttribute('placeholder', 'pk-alpha');
+    expect(input.className).toContain('min-h-[48px]');
+
+    expect(
+      screen.getByText('Từ 3–30 ký tự gồm chữ thường không dấu, số và dấu gạch ngang (-).')
+    ).toBeInTheDocument();
+
+    const button = screen.getByRole('button', { name: 'Tiếp tục' });
+    expect(button.className).toContain('min-h-[48px]');
+
+    expect(
+      screen.getByText('Quên mã cơ sở? Liên hệ Quản trị viên cơ sở hoặc bộ phận hỗ trợ nền tảng.')
+    ).toBeInTheDocument();
+  });
+
+  it('blocks invalid tenantCode inline before calling BFF fetch', async () => {
+    const user = userEvent.setup();
+    const fetchSpy = jest.spyOn(global, 'fetch');
+
+    render(<TenantSelectionForm />);
+
+    const input = screen.getByLabelText('Mã cơ sở');
+    const button = screen.getByRole('button', { name: 'Tiếp tục' });
+
+    await user.type(input, 'PK_Alpha');
+    await user.click(button);
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('disables submit while verifying and redirects to validated Keycloak loginUrl on ACTIVE', async () => {
+    const user = userEvent.setup();
+    const onRedirect = jest.fn();
+
+    let resolveResponse: ((value: Response) => void) | undefined;
+    const pendingFetch = new Promise<Response>((resolve) => {
+      resolveResponse = resolve;
+    });
+    const fetchSpy = jest.spyOn(global, 'fetch').mockReturnValueOnce(pendingFetch);
+
+    render(<TenantSelectionForm onRedirect={onRedirect} />);
+
+    const input = screen.getByLabelText('Mã cơ sở');
+    await user.type(input, '  pk-alpha  ');
+    await user.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Đang xác minh/i })).toBeDisabled();
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/auth/tenant/verify',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ tenantCode: 'pk-alpha' }),
+      })
+    );
+
+    resolveResponse?.(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            tenantId: 't-1',
+            tenantCode: 'pk-alpha',
+            tenantName: 'Phòng khám Alpha',
+            status: 'ACTIVE',
+            organisationId: 'org-1',
+            loginUrl: 'https://sso.nextturn.local/auth/pk-alpha',
+            allowedRoles: ['TENANT_ADMIN', 'COUNTER_STAFF'],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    await waitFor(() => {
+      expect(onRedirect).toHaveBeenCalledWith('https://sso.nextturn.local/auth/pk-alpha');
+    });
+  });
+});
