@@ -30,6 +30,11 @@ interface CallbackAlertState {
   message: string;
 }
 
+interface ScopedExchangeError {
+  code: string;
+  alert: CallbackAlertState;
+}
+
 const exchangeErrorTitles: Record<string, string> = {
   AUTH_003: 'Không tìm thấy cơ sở',
   AUTH_004: 'Cơ sở chưa sẵn sàng hoạt động',
@@ -120,12 +125,34 @@ export function OidcCallbackClient() {
 
   const isMountedRef = useRef(true);
   const startedCodeRef = useRef<string | null>(null);
-  const [exchangeError, setExchangeError] = useState<CallbackAlertState | null>(null);
+  const clearedStaleSessionRef = useRef(false);
+  const [exchangeError, setExchangeError] = useState<ScopedExchangeError | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
 
-    if (oauthError || !code || startedCodeRef.current === code) {
+    async function clearStaleSession() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } catch {
+        // Ignore cleanup failures so the Vietnamese recovery card renders without interruption.
+      }
+    }
+
+    if (oauthError || !code) {
+      if (!clearedStaleSessionRef.current) {
+        clearedStaleSessionRef.current = true;
+        void clearStaleSession();
+      }
+
+      return () => {
+        isMountedRef.current = false;
+      };
+    }
+
+    clearedStaleSessionRef.current = false;
+
+    if (startedCodeRef.current === code) {
       return () => {
         isMountedRef.current = false;
       };
@@ -148,36 +175,43 @@ export function OidcCallbackClient() {
 
         const payload: unknown = await response.json().catch(() => null);
 
-        if (!isMountedRef.current) {
+        if (!isMountedRef.current || startedCodeRef.current !== authCode) {
           return;
         }
 
         if (!response.ok) {
           const parsedError = callbackErrorSchema.safeParse(payload);
-          setExchangeError(
-            buildExchangeErrorState(
+          setExchangeError({
+            code: authCode,
+            alert: buildExchangeErrorState(
               parsedError.success ? parsedError.data.errorCode : undefined,
               parsedError.success ? parsedError.data.message : undefined
-            )
-          );
+            ),
+          });
           return;
         }
 
         const parsedSuccess = callbackSuccessSchema.safeParse(payload);
         if (!parsedSuccess.success) {
           setExchangeError({
-            title: 'Xác thực thất bại',
-            message: 'Không thể xác định cổng làm việc phù hợp cho tài khoản này.',
+            code: authCode,
+            alert: {
+              title: 'Xác thực thất bại',
+              message: 'Không thể xác định cổng làm việc phù hợp cho tài khoản này.',
+            },
           });
           return;
         }
 
         router.replace(parsedSuccess.data.data.redirectPath);
       } catch {
-        if (isMountedRef.current) {
+        if (isMountedRef.current && startedCodeRef.current === authCode) {
           setExchangeError({
-            title: 'Lỗi kết nối xác thực',
-            message: 'Không thể kết nối đến hệ thống xác thực. Vui lòng thử lại.',
+            code: authCode,
+            alert: {
+              title: 'Lỗi kết nối xác thực',
+              message: 'Không thể kết nối đến hệ thống xác thực. Vui lòng thử lại.',
+            },
           });
         }
       }
@@ -190,7 +224,8 @@ export function OidcCallbackClient() {
     };
   }, [code, oauthError, router]);
 
-  const activeError = queryRecoveryError ?? exchangeError;
+  const activeError =
+    queryRecoveryError ?? (exchangeError?.code === code ? exchangeError.alert : null);
 
   if (activeError) {
     return (

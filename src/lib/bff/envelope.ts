@@ -3,11 +3,13 @@ import { z } from 'zod';
 
 import { extractInactiveTenantStatus } from '@/features/auth/tenant-verify.schema';
 
+export const backendFieldErrorMapSchema = z.record(z.string(), z.string());
+
 export const backendErrorEnvelopeSchema = z.object({
   success: z.literal(false).optional(),
   errorCode: z.string().optional(),
   message: z.string().optional(),
-  data: z.record(z.string(), z.string()).nullable().optional(),
+  data: z.unknown().nullable().optional(),
 });
 
 const authErrorCatalog: Record<string, { defaultStatus: number; message: string }> = {

@@ -114,6 +114,48 @@ describe('POST /api/auth/token', () => {
     expect(metaCookie).toContain('Path=/');
   });
 
+  it('trims padded tenantCode in user summary and nt_session_meta cookie', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            accessToken: 'raw-access-jwt',
+            refreshToken: 'raw-refresh-jwt',
+            expiresIn: 300,
+            refreshExpiresIn: 1800,
+            userId: 'user-trimmed',
+            email: 'admin@pk-alpha.vn',
+            fullName: 'Nguyễn Văn An',
+            roles: ['TENANT_ADMIN'],
+            primaryRole: 'TENANT_ADMIN',
+            tenantCode: '  pk-alpha  ',
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    );
+
+    const response = await POST(
+      new Request('http://localhost:3000/api/auth/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: 'trimmed-code' }),
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.user.tenantCode).toBe('pk-alpha');
+    expect(body.data.redirectPath).toBe('/pk-alpha/tenant');
+
+    const metaCookie = findSetCookie(response.headers.getSetCookie(), 'nt_session_meta');
+    expect(metaCookie).toBeDefined();
+    const rawCookieValue = metaCookie?.split(';')[0]?.slice('nt_session_meta='.length) ?? '';
+    const parsedMeta = JSON.parse(decodeURIComponent(rawCookieValue));
+    expect(parsedMeta.tenantCode).toBe('pk-alpha');
+  });
+
   it('sets Secure cookie attribute in production and computes /admin and /counter routes', async () => {
     Object.defineProperty(process.env, 'NODE_ENV', {
       value: 'production',
@@ -242,6 +284,71 @@ describe('POST /api/auth/token', () => {
     expect(response.status).toBe(400);
     expect(body.success).toBe(false);
     expect(body.errorCode).toBe('SYS_002');
+  });
+
+  it.each([
+    'https://evil.example/auth/callback',
+    'http://localhost:3000/other/callback',
+    'http://localhost:3000/auth/callback/extra',
+    'https://localhost:3000/auth/callback',
+  ])(
+    'rejects mismatched redirectUri %s with 400 SYS_002 without calling backend',
+    async (redirectUri) => {
+      const fetchSpy = jest.spyOn(global, 'fetch');
+
+      const response = await POST(
+        new Request('http://localhost:3000/api/auth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: 'auth-code-123', redirectUri }),
+        })
+      );
+      const body = await response.json();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(response.status).toBe(400);
+      expect(body.success).toBe(false);
+      expect(body.errorCode).toBe('SYS_002');
+    }
+  );
+
+  it('accepts redirectUri matching X-Forwarded-Proto and X-Forwarded-Host origin', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            accessToken: 'fwd-access',
+            refreshToken: 'fwd-refresh',
+            userId: 'u-fwd',
+            email: 'admin@pk-alpha.vn',
+            fullName: 'Nguyễn Văn An',
+            roles: ['TENANT_ADMIN'],
+            primaryRole: 'TENANT_ADMIN',
+            tenantCode: 'pk-alpha',
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    );
+
+    const response = await POST(
+      new Request('http://127.0.0.1:3000/api/auth/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Forwarded-Proto': 'https',
+          'X-Forwarded-Host': 'clinic.nextturn.vn',
+        },
+        body: JSON.stringify({
+          code: 'fwd-code',
+          redirectUri: 'https://clinic.nextturn.vn/auth/callback',
+        }),
+      })
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(200);
   });
 
   it('returns 400 SYS_002 on malformed JSON body and 503 SYS_001 when NEXTTURN_BACKEND_URL is missing', async () => {

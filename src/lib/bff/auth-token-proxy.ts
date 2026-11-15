@@ -28,7 +28,7 @@ function maybeClearCookies(
   policy: ProxyAuthTokenOptions['clearCookiesPolicy'],
   status: number
 ): NextResponse {
-  if (policy === 'always' || status === 401 || status === 403 || status === 502) {
+  if (policy === 'always' || status === 401 || status === 403) {
     clearSessionCookies(response);
   }
 
@@ -117,7 +117,7 @@ export async function proxyAuthTokenExchange({
     fullName: tokenData.fullName,
     primaryRole: tokenData.primaryRole,
     roles: tokenData.roles,
-    tenantCode: tokenData.tenantCode ?? null,
+    tenantCode: tokenData.tenantCode?.trim() ?? null,
   });
 
   if (!redirectPath || !parsedSummary.success) {

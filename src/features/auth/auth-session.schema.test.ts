@@ -1,4 +1,8 @@
-import { computePortalDestination } from './auth-session.schema';
+import {
+  authUserSummarySchema,
+  backendAuthTokenDataSchema,
+  computePortalDestination,
+} from './auth-session.schema';
 
 describe('computePortalDestination', () => {
   it('routes SUPERADMIN to /admin regardless of tenantCode', () => {
@@ -8,6 +12,7 @@ describe('computePortalDestination', () => {
 
   it('routes TENANT_ADMIN and COUNTER_STAFF using normalized tenantCode slug', () => {
     expect(computePortalDestination('TENANT_ADMIN', 'pk-alpha')).toBe('/pk-alpha/tenant');
+    expect(computePortalDestination('TENANT_ADMIN', '  pk-alpha  ')).toBe('/pk-alpha/tenant');
     expect(computePortalDestination('COUNTER_STAFF', 'pk-beta-01')).toBe('/pk-beta-01/counter');
   });
 
@@ -22,5 +27,21 @@ describe('computePortalDestination', () => {
   it('returns null for unrecognized or non-staff roles', () => {
     expect(computePortalDestination('END_USER', 'pk-alpha')).toBeNull();
     expect(computePortalDestination('SPECIALIST', 'pk-alpha')).toBeNull();
+  });
+
+  it('allows backendAuthTokenDataSchema to parse non-staff roles while authUserSummarySchema rejects them', () => {
+    const basePayload = {
+      accessToken: 'access-jwt',
+      refreshToken: 'refresh-jwt',
+      userId: 'u-1',
+      email: 'customer@nextturn.vn',
+      fullName: 'Khách hàng',
+      roles: ['END_USER'],
+      primaryRole: 'END_USER',
+      tenantCode: 'pk-alpha',
+    };
+
+    expect(backendAuthTokenDataSchema.safeParse(basePayload).success).toBe(true);
+    expect(authUserSummarySchema.safeParse(basePayload).success).toBe(false);
   });
 });

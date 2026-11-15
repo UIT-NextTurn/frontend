@@ -143,15 +143,23 @@ describe('/auth/callback OIDC exchange', () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it('skips BFF token call on ?error query param, suppresses raw HTML/script payloads, and links back to /login', () => {
+  it('clears stale session via POST /api/auth/logout once on ?error, skips /api/auth/token, suppresses raw HTML/script payloads, and links back to /login', async () => {
     mockSearchParams = new URLSearchParams(
       'error=access_denied&error_description=%3Cscript%3Ealert(1)%3C%2Fscript%3E'
     );
-    const fetchSpy = jest.spyOn(global, 'fetch');
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
 
-    const { container } = render(<AuthCallbackPage />);
+    const { container } = render(
+      <StrictMode>
+        <AuthCallbackPage />
+      </StrictMode>
+    );
 
-    expect(fetchSpy).not.toHaveBeenCalled();
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('Bạn đã hủy đăng nhập');
     expect(alert).not.toHaveTextContent('<script>');
@@ -160,30 +168,107 @@ describe('/auth/callback OIDC exchange', () => {
     const backLink = screen.getByRole('link', { name: 'Quay lại chọn cơ sở' });
     expect(backLink).toHaveAttribute('href', '/login');
     expect(mockReplace).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(fetchSpy).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' });
+    expect(fetchSpy).not.toHaveBeenCalledWith('/api/auth/token', expect.anything());
   });
 
-  it('skips BFF token call on generic OAuth error query param', () => {
+  it('clears stale session via POST /api/auth/logout and skips /api/auth/token on generic OAuth error query param', async () => {
     mockSearchParams = new URLSearchParams('error=temporarily_unavailable');
-    const fetchSpy = jest.spyOn(global, 'fetch');
+    const fetchSpy = jest.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('Logout failed'));
 
     render(<AuthCallbackPage />);
 
-    expect(fetchSpy).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent('Đăng nhập chưa hoàn tất');
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(fetchSpy).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' });
+    expect(fetchSpy).not.toHaveBeenCalledWith('/api/auth/token', expect.anything());
   });
 
-  it('skips BFF token call when ?code is missing and renders recovery link to /login', () => {
+  it('clears stale session via POST /api/auth/logout, skips /api/auth/token when ?code is missing, and renders recovery link to /login', async () => {
     mockSearchParams = new URLSearchParams('');
-    const fetchSpy = jest.spyOn(global, 'fetch');
+    const fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
 
     render(<AuthCallbackPage />);
 
-    expect(fetchSpy).not.toHaveBeenCalled();
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('Thiếu mã xác thực');
     expect(screen.getByRole('link', { name: 'Quay lại chọn cơ sở' })).toHaveAttribute(
       'href',
       '/login'
+    );
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(fetchSpy).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' });
+    expect(fetchSpy).not.toHaveBeenCalledWith('/api/auth/token', expect.anything());
+  });
+
+  it('clears previous exchangeError and exchanges the new code when ?code changes while mounted', async () => {
+    mockSearchParams = new URLSearchParams('code=stale-code');
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: false,
+            errorCode: 'AUTH_005',
+            message: 'Mã xác thực đã hết hạn.',
+          }),
+          { status: 401, headers: { 'content-type': 'application/json' } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              redirectPath: '/pk-alpha/counter',
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      );
+
+    const { rerender } = render(<AuthCallbackPage />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Mã xác thực đã hết hạn');
+    expect(mockReplace).not.toHaveBeenCalled();
+
+    mockSearchParams = new URLSearchParams('code=fresh-code');
+    rerender(<AuthCallbackPage />);
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Đang hoàn tất đăng nhập' })
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith('/pk-alpha/counter');
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
+      '/api/auth/token',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          code: 'fresh-code',
+          redirectUri: `${window.location.origin}/auth/callback`,
+        }),
+      })
     );
   });
 

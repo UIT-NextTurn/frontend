@@ -1,8 +1,14 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Locator, test } from '@playwright/test';
 
 import { type E2eServerHandle, startE2eServers } from './support/e2e-harness';
 
 let servers: E2eServerHandle;
+
+async function expectTouchTarget(locator: Locator): Promise<void> {
+  const box = await locator.boundingBox();
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
+}
 
 test.beforeAll(async () => {
   servers = await startE2eServers();
@@ -26,12 +32,8 @@ test.describe('Authentication & Entry Flows E2E', () => {
     const tenantInput = page.getByLabel('Mã cơ sở');
     const submitButton = page.getByRole('button', { name: 'Tiếp tục' });
 
-    const inputBox = await tenantInput.boundingBox();
-    const buttonBox = await submitButton.boundingBox();
-    expect(inputBox?.height ?? 0).toBeGreaterThanOrEqual(44);
-    expect(inputBox?.width ?? 0).toBeGreaterThanOrEqual(44);
-    expect(buttonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
-    expect(buttonBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+    await expectTouchTarget(tenantInput);
+    await expectTouchTarget(submitButton);
 
     const hasHorizontalOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth
@@ -68,11 +70,13 @@ test.describe('Authentication & Entry Flows E2E', () => {
     await page.waitForURL(`**/mock-keycloak/superadmin`);
     await expect(page.getByTestId('mock-keycloak')).toContainText('/mock-keycloak/superadmin');
 
-    servers.state.superAdminOutage = true;
+    servers.state.platformAdminOutage = true;
     await page.goto(`${servers.baseUrl}/admin`);
 
+    const retryButton = page.getByRole('button', { name: 'Thử lại' });
     await expect(page.locator('main [role="alert"]')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Thử lại' })).toBeVisible();
+    await expect(retryButton).toBeVisible();
+    await expectTouchTarget(retryButton);
     await expect(page.getByText(/Đổi mã cơ sở/i)).toHaveCount(0);
     await expect(page.getByLabel(/Mã cơ sở/i)).toHaveCount(0);
 
@@ -81,8 +85,8 @@ test.describe('Authentication & Entry Flows E2E', () => {
     );
     expect(hasOverflowOnAdminFallback).toBe(false);
 
-    servers.state.superAdminOutage = false;
-    await page.getByRole('button', { name: 'Thử lại' }).click();
+    servers.state.platformAdminOutage = false;
+    await retryButton.click();
     await page.waitForURL(`**/mock-keycloak/superadmin`);
   });
 
@@ -124,7 +128,9 @@ test.describe('Authentication & Entry Flows E2E', () => {
     await page.goto(`${servers.baseUrl}/login`);
     await page.waitForURL(`**/pk-alpha/tenant`);
 
-    await page.getByRole('button', { name: 'Đăng xuất' }).click();
+    const logoutButton = page.getByRole('button', { name: 'Đăng xuất' });
+    await expectTouchTarget(logoutButton);
+    await logoutButton.click();
     await page.waitForURL(`**/login`);
     await expect(page.getByLabel('Mã cơ sở')).toBeVisible();
     expect(servers.state.logoutCalls).toBe(1);
@@ -139,26 +145,162 @@ test.describe('Authentication & Entry Flows E2E', () => {
 
     await page.goto(`${servers.baseUrl}/pk-alpha/tenant`);
     await expect(page.locator('main [role="alert"]')).toContainText('403');
-    await expect(page.getByRole('link', { name: 'Quay lại cổng của bạn' })).toHaveAttribute(
-      'href',
-      '/pk-alpha/counter'
-    );
+    const backToPortalLink = page.getByRole('link', { name: 'Quay lại cổng của bạn' });
+    await expect(backToPortalLink).toHaveAttribute('href', '/pk-alpha/counter');
+    await expectTouchTarget(backToPortalLink);
 
     await page.goto(`${servers.baseUrl}/auth/callback?code=code-superadmin`);
     await page.waitForURL(`**/admin`);
     await expect(page.getByText('Quản trị viên nền tảng', { exact: true })).toBeVisible();
     await expect(page.getByText(/Đổi mã cơ sở/i)).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Đăng xuất' }).click();
+    const adminLogoutButton = page.getByRole('button', { name: 'Đăng xuất' });
+    await expectTouchTarget(adminLogoutButton);
+    await adminLogoutButton.click();
     await page.waitForURL(`**/login`);
 
     await page.goto(`${servers.baseUrl}/auth/callback?code=code-end-user`);
     await expect(page.locator('main [role="alert"]')).toContainText(
       'Tài khoản không có quyền truy cập'
     );
-    await expect(page.getByRole('link', { name: 'Quay lại chọn cơ sở' })).toHaveAttribute(
-      'href',
-      '/login'
+    const backToLoginLink = page.getByRole('link', { name: 'Quay lại chọn cơ sở' });
+    await expect(backToLoginLink).toHaveAttribute('href', '/login');
+    await expectTouchTarget(backToLoginLink);
+  });
+
+  test('enforces cross-tenant 403 isolation and links back to authorized portal', async ({
+    page,
+  }) => {
+    await page.goto(`${servers.baseUrl}/auth/callback?code=code-tenant-admin`);
+    await page.waitForURL(`**/pk-alpha/tenant`);
+
+    await page.goto(`${servers.baseUrl}/pk-beta/tenant`);
+    await expect(page.locator('main [role="alert"]')).toContainText('403');
+    await expect(page.locator('main [role="alert"]')).toContainText(
+      'Tài khoản này thuộc cơ sở khác'
     );
+
+    const backToPortalLink = page.getByRole('link', { name: 'Quay lại cổng của bạn' });
+    await expect(backToPortalLink).toHaveAttribute('href', '/pk-alpha/tenant');
+    await expectTouchTarget(backToPortalLink);
+
+    await backToPortalLink.click();
+    await page.waitForURL(`**/pk-alpha/tenant`);
+  });
+
+  test('/auth/callback shows recovery UI for missing ?code and clears active session on ?error=access_denied', async ({
+    page,
+    context,
+  }) => {
+    await page.goto(`${servers.baseUrl}/auth/callback`);
+    await expect(page.locator('main [role="alert"]')).toContainText('Thiếu mã xác thực');
+    const missingCodeLink = page.getByRole('link', { name: 'Quay lại chọn cơ sở' });
+    await expect(missingCodeLink).toHaveAttribute('href', '/login');
+    await expectTouchTarget(missingCodeLink);
+
+    await page.goto(`${servers.baseUrl}/auth/callback?code=code-tenant-admin`);
+    await page.waitForURL(`**/pk-alpha/tenant`);
+
+    await page.goto(`${servers.baseUrl}/auth/callback?error=access_denied`);
+    await expect(page.locator('main [role="alert"]')).toContainText('Bạn đã hủy đăng nhập');
+    const deniedLink = page.getByRole('link', { name: 'Quay lại chọn cơ sở' });
+    await expect(deniedLink).toHaveAttribute('href', '/login');
+    await expectTouchTarget(deniedLink);
+
+    await expect
+      .poll(async () => {
+        const currentCookies = await context.cookies();
+        return currentCookies.some((cookie) => cookie.name === 'nt_access_token');
+      })
+      .toBe(false);
+    expect(servers.state.logoutCalls).toBe(1);
+
+    const cookiesAfterDenied = await context.cookies();
+    for (const cookieName of ['nt_refresh_token', 'nt_session_meta']) {
+      expect(cookiesAfterDenied.find((cookie) => cookie.name === cookieName)).toBeUndefined();
+    }
+
+    await deniedLink.click();
+    await page.waitForURL(`**/login`);
+    await expect(page.getByLabel('Mã cơ sở')).toBeVisible();
+  });
+
+  test('POST /api/auth/refresh rotates httpOnly cookies and clears session cookies on invalid refresh token', async ({
+    page,
+    context,
+  }) => {
+    await page.goto(`${servers.baseUrl}/auth/callback?code=code-tenant-admin`);
+    await page.waitForURL(`**/pk-alpha/tenant`);
+
+    const refreshSuccess = await page.evaluate(async () => {
+      const response = await fetch('/api/auth/refresh', { method: 'POST' });
+      const rawBody: unknown = await response.json();
+      const body =
+        typeof rawBody === 'object' && rawBody !== null
+          ? Object.fromEntries(Object.entries(rawBody))
+          : {};
+      return {
+        status: response.status,
+        success: body.success,
+        documentCookie: document.cookie,
+      };
+    });
+
+    expect(refreshSuccess.status).toBe(200);
+    expect(refreshSuccess.success).toBe(true);
+    expect(servers.state.refreshCalls).toBe(1);
+    expect(refreshSuccess.documentCookie).not.toContain('jwt-ta-access-rotated');
+    expect(refreshSuccess.documentCookie).not.toContain('jwt-ta-refresh-rotated');
+    expect(refreshSuccess.documentCookie).not.toContain('nt_access_token');
+
+    const rotatedCookies = await context.cookies();
+    const rotatedAccessCookie = rotatedCookies.find((cookie) => cookie.name === 'nt_access_token');
+    const rotatedRefreshCookie = rotatedCookies.find(
+      (cookie) => cookie.name === 'nt_refresh_token'
+    );
+    expect(rotatedAccessCookie?.value).toBe('jwt-ta-access-rotated');
+    expect(rotatedAccessCookie?.httpOnly).toBe(true);
+    expect(rotatedAccessCookie?.sameSite).toBe('Lax');
+    expect(rotatedRefreshCookie?.value).toBe('jwt-ta-refresh-rotated');
+    expect(rotatedRefreshCookie?.httpOnly).toBe(true);
+    expect(rotatedRefreshCookie?.sameSite).toBe('Lax');
+
+    await context.addCookies([
+      {
+        name: 'nt_refresh_token',
+        value: 'invalid-refresh-token',
+        url: servers.baseUrl,
+        httpOnly: true,
+        sameSite: 'Lax',
+      },
+    ]);
+
+    const refreshFailure = await page.evaluate(async () => {
+      const response = await fetch('/api/auth/refresh', { method: 'POST' });
+      const rawBody: unknown = await response.json();
+      const body =
+        typeof rawBody === 'object' && rawBody !== null
+          ? Object.fromEntries(Object.entries(rawBody))
+          : {};
+      return {
+        status: response.status,
+        success: body.success,
+        errorCode: body.errorCode,
+      };
+    });
+
+    expect(refreshFailure.status).toBe(401);
+    expect(refreshFailure.success).toBe(false);
+    expect(refreshFailure.errorCode).toBe('AUTH_008');
+    expect(servers.state.refreshCalls).toBe(2);
+
+    const cookiesAfterFailure = await context.cookies();
+    for (const cookieName of ['nt_access_token', 'nt_refresh_token', 'nt_session_meta']) {
+      expect(cookiesAfterFailure.find((cookie) => cookie.name === cookieName)).toBeUndefined();
+    }
+
+    await page.goto(`${servers.baseUrl}/login`);
+    await page.waitForURL(`**/login`);
+    await expect(page.getByLabel('Mã cơ sở')).toBeVisible();
   });
 });
