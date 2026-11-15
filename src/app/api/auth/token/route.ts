@@ -8,7 +8,7 @@ import {
   tokenExchangeRequestSchema,
 } from '@/features/auth/auth-session.schema';
 import { clearSessionCookies, setSessionCookies } from '@/lib/auth/session-cookies';
-import { buildBffErrorResponse } from '@/lib/bff/envelope';
+import { buildBffErrorResponse, buildMappedAuthErrorResponse } from '@/lib/bff/envelope';
 import { getServerEnv } from '@/lib/env';
 
 const backendTokenSuccessSchema = z.object({
@@ -79,11 +79,7 @@ export async function POST(request: Request) {
   }
 
   if (!upstream.ok) {
-    const errorResponse = buildBffErrorResponse(
-      upstream.status >= 400 ? upstream.status : 502,
-      'AUTH_005',
-      'Không thể hoàn tất đăng nhập. Vui lòng thử lại.'
-    );
+    const errorResponse = buildMappedAuthErrorResponse(upstream.status, payload);
     clearSessionCookies(errorResponse);
     return errorResponse;
   }

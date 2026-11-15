@@ -25,6 +25,65 @@ const callbackErrorSchema = z.object({
   message: z.string().optional(),
 });
 
+interface CallbackAlertState {
+  title: string;
+  message: string;
+}
+
+const exchangeErrorTitles: Record<string, string> = {
+  AUTH_003: 'Không tìm thấy cơ sở',
+  AUTH_004: 'Cơ sở chưa sẵn sàng hoạt động',
+  AUTH_005: 'Mã xác thực đã hết hạn',
+  AUTH_007: 'Phiên xác thực không hợp lệ',
+  AUTH_010: 'Tài khoản không có quyền truy cập',
+  AUTH_011: 'Dịch vụ Keycloak tạm gián đoạn',
+};
+
+function resolveQueryRecoveryState(oauthError: string, code: string): CallbackAlertState | null {
+  if (oauthError) {
+    if (oauthError === 'access_denied') {
+      return {
+        title: 'Bạn đã hủy đăng nhập',
+        message:
+          'Quá trình đăng nhập tại Keycloak đã bị hủy. Vui lòng chọn lại cơ sở và thử đăng nhập lại.',
+      };
+    }
+
+    return {
+      title: 'Đăng nhập chưa hoàn tất',
+      message:
+        'Dịch vụ xác thực trả về lỗi và không thể hoàn tất phiên làm việc. Vui lòng quay lại và thử lại.',
+    };
+  }
+
+  if (!code) {
+    return {
+      title: 'Thiếu mã xác thực',
+      message: 'Liên kết xác thực không chứa mã phiên hợp lệ. Vui lòng bắt đầu lại từ đầu.',
+    };
+  }
+
+  return null;
+}
+
+function buildExchangeErrorState(
+  errorCode: string | undefined,
+  backendMessage: string | undefined
+): CallbackAlertState {
+  if (errorCode === 'AUTH_010') {
+    return {
+      title: exchangeErrorTitles.AUTH_010,
+      message:
+        'Tài khoản khách hàng không thể đăng nhập vào cổng quản lý nhân sự. Cổng này chỉ dành cho Quản trị viên cơ sở, Nhân viên quầy hoặc Quản trị viên nền tảng.',
+    };
+  }
+
+  return {
+    title: (errorCode ? exchangeErrorTitles[errorCode] : undefined) ?? 'Xác thực thất bại',
+    message: backendMessage ?? 'Không thể hoàn tất đăng nhập. Vui lòng thử lại.',
+  };
+}
+
 /**
  * Fallback processing card rendered by the callback page Suspense boundary.
  */
@@ -55,16 +114,18 @@ export function CallbackProcessingCard() {
 export function OidcCallbackClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const oauthError = searchParams.get('error')?.trim() ?? '';
   const code = searchParams.get('code')?.trim() ?? '';
+  const queryRecoveryError = resolveQueryRecoveryState(oauthError, code);
 
   const isMountedRef = useRef(true);
   const startedCodeRef = useRef<string | null>(null);
-  const [exchangeError, setExchangeError] = useState<string | null>(null);
+  const [exchangeError, setExchangeError] = useState<CallbackAlertState | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
 
-    if (!code || startedCodeRef.current === code) {
+    if (oauthError || !code || startedCodeRef.current === code) {
       return () => {
         isMountedRef.current = false;
       };
@@ -94,23 +155,30 @@ export function OidcCallbackClient() {
         if (!response.ok) {
           const parsedError = callbackErrorSchema.safeParse(payload);
           setExchangeError(
-            parsedError.success && parsedError.data.message
-              ? parsedError.data.message
-              : 'Không thể hoàn tất đăng nhập. Vui lòng thử lại.'
+            buildExchangeErrorState(
+              parsedError.success ? parsedError.data.errorCode : undefined,
+              parsedError.success ? parsedError.data.message : undefined
+            )
           );
           return;
         }
 
         const parsedSuccess = callbackSuccessSchema.safeParse(payload);
         if (!parsedSuccess.success) {
-          setExchangeError('Không thể xác định cổng làm việc phù hợp cho tài khoản này.');
+          setExchangeError({
+            title: 'Xác thực thất bại',
+            message: 'Không thể xác định cổng làm việc phù hợp cho tài khoản này.',
+          });
           return;
         }
 
         router.replace(parsedSuccess.data.data.redirectPath);
       } catch {
         if (isMountedRef.current) {
-          setExchangeError('Không thể kết nối đến hệ thống xác thực. Vui lòng thử lại.');
+          setExchangeError({
+            title: 'Lỗi kết nối xác thực',
+            message: 'Không thể kết nối đến hệ thống xác thực. Vui lòng thử lại.',
+          });
         }
       }
     }
@@ -120,9 +188,11 @@ export function OidcCallbackClient() {
     return () => {
       isMountedRef.current = false;
     };
-  }, [code, router]);
+  }, [code, oauthError, router]);
 
-  if (exchangeError) {
+  const activeError = queryRecoveryError ?? exchangeError;
+
+  if (activeError) {
     return (
       <Card className="w-full max-w-[420px]">
         <CardHeader className="space-y-2">
@@ -132,8 +202,8 @@ export function OidcCallbackClient() {
         <CardContent className="space-y-4">
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" aria-hidden="true" />
-            <AlertTitle>Xác thực thất bại</AlertTitle>
-            <AlertDescription>{exchangeError}</AlertDescription>
+            <AlertTitle>{activeError.title}</AlertTitle>
+            <AlertDescription>{activeError.message}</AlertDescription>
           </Alert>
           <Button asChild variant="secondary" size="lg" className="w-full">
             <Link href="/login">Quay lại chọn cơ sở</Link>

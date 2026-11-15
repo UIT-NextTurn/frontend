@@ -142,4 +142,110 @@ describe('/auth/callback OIDC exchange', () => {
     );
     expect(mockReplace).not.toHaveBeenCalled();
   });
+
+  it('skips BFF token call on ?error query param, suppresses raw HTML/script payloads, and links back to /login', () => {
+    mockSearchParams = new URLSearchParams(
+      'error=access_denied&error_description=%3Cscript%3Ealert(1)%3C%2Fscript%3E'
+    );
+    const fetchSpy = jest.spyOn(global, 'fetch');
+
+    const { container } = render(<AuthCallbackPage />);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Bạn đã hủy đăng nhập');
+    expect(alert).not.toHaveTextContent('<script>');
+    expect(container.querySelector('script')).toBeNull();
+
+    const backLink = screen.getByRole('link', { name: 'Quay lại chọn cơ sở' });
+    expect(backLink).toHaveAttribute('href', '/login');
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('skips BFF token call on generic OAuth error query param', () => {
+    mockSearchParams = new URLSearchParams('error=temporarily_unavailable');
+    const fetchSpy = jest.spyOn(global, 'fetch');
+
+    render(<AuthCallbackPage />);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Đăng nhập chưa hoàn tất');
+  });
+
+  it('skips BFF token call when ?code is missing and renders recovery link to /login', () => {
+    mockSearchParams = new URLSearchParams('');
+    const fetchSpy = jest.spyOn(global, 'fetch');
+
+    render(<AuthCallbackPage />);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Thiếu mã xác thực');
+    expect(screen.getByRole('link', { name: 'Quay lại chọn cơ sở' })).toHaveAttribute(
+      'href',
+      '/login'
+    );
+  });
+
+  it('shows portal-restriction recovery guidance when BFF rejects END_USER with AUTH_010', async () => {
+    mockSearchParams = new URLSearchParams('code=end-user-code');
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: false,
+          errorCode: 'AUTH_010',
+          message:
+            'Tài khoản khách hàng không có quyền truy cập cổng quản lý nhân sự. Vui lòng sử dụng cổng đặt lịch dành cho khách hàng.',
+        }),
+        { status: 403, headers: { 'content-type': 'application/json' } }
+      )
+    );
+
+    render(<AuthCallbackPage />);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Tài khoản không có quyền truy cập');
+    expect(alert).toHaveTextContent(/Quản trị viên cơ sở/i);
+    expect(screen.getByRole('link', { name: 'Quay lại chọn cơ sở' })).toHaveAttribute(
+      'href',
+      '/login'
+    );
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      errorCode: 'AUTH_005',
+      status: 401,
+      message: 'Mã xác thực không hợp lệ hoặc đã hết hạn.',
+      expectedTitle: 'Mã xác thực đã hết hạn',
+    },
+    {
+      errorCode: 'AUTH_011',
+      status: 503,
+      message: 'Dịch vụ đăng nhập Keycloak hiện tạm thời gián đoạn.',
+      expectedTitle: 'Dịch vụ Keycloak tạm gián đoạn',
+    },
+  ])(
+    'surfaces tailored recovery card and /login link for $errorCode',
+    async ({ errorCode, status, message, expectedTitle }) => {
+      mockSearchParams = new URLSearchParams('code=err-code');
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: false, errorCode, message }), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+
+      render(<AuthCallbackPage />);
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(expectedTitle);
+      expect(alert).toHaveTextContent(message);
+      expect(screen.getByRole('link', { name: 'Quay lại chọn cơ sở' })).toHaveAttribute(
+        'href',
+        '/login'
+      );
+    }
+  );
 });

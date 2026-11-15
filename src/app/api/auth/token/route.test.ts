@@ -305,4 +305,76 @@ describe('POST /api/auth/token', () => {
       'Max-Age=0'
     );
   });
+
+  it.each([
+    {
+      status: 401,
+      errorCode: 'AUTH_005',
+      backendMessage: 'Invalid or expired authorization code',
+      expectedText: 'Mã xác thực không hợp lệ hoặc đã hết hạn',
+    },
+    {
+      status: 401,
+      errorCode: 'AUTH_007',
+      backendMessage: 'Malformed JWT token',
+      expectedText: 'Phiên xác thực không hợp lệ',
+    },
+    {
+      status: 403,
+      errorCode: 'AUTH_010',
+      backendMessage: 'END_USER is not permitted on staff portal',
+      expectedText: 'Tài khoản khách hàng không có quyền truy cập cổng quản lý nhân sự',
+    },
+    {
+      status: 403,
+      errorCode: 'AUTH_004',
+      backendMessage: 'Tenant is not active. Current status: SUSPENDED',
+      expectedText: 'Cơ sở hiện chưa sẵn sàng hoạt động',
+    },
+    {
+      status: 404,
+      errorCode: 'AUTH_003',
+      backendMessage: 'Tenant not found',
+      expectedText: 'Không tìm thấy cơ sở',
+    },
+    {
+      status: 503,
+      errorCode: 'AUTH_011',
+      backendMessage: 'Keycloak unavailable',
+      expectedText: 'Dịch vụ đăng nhập Keycloak hiện tạm thời gián đoạn',
+    },
+  ])(
+    'maps backend $status $errorCode rejection to Vietnamese message and clears auth cookies',
+    async ({ status, errorCode, backendMessage, expectedText }) => {
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: false,
+            errorCode,
+            message: backendMessage,
+          }),
+          { status, headers: { 'content-type': 'application/json' } }
+        )
+      );
+
+      const response = await POST(
+        new Request('http://localhost:3000/api/auth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: 'rejected-code' }),
+        })
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(status);
+      expect(body.success).toBe(false);
+      expect(body.errorCode).toBe(errorCode);
+      expect(body.message).toContain(expectedText);
+
+      const setCookies = response.headers.getSetCookie();
+      expect(findSetCookie(setCookies, 'nt_access_token')).toContain('Max-Age=0');
+      expect(findSetCookie(setCookies, 'nt_refresh_token')).toContain('Max-Age=0');
+      expect(findSetCookie(setCookies, 'nt_session_meta')).toContain('Max-Age=0');
+    }
+  );
 });
