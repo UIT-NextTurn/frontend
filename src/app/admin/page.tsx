@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { fetchSuperAdminLoginUrl } from '@/features/auth/admin-entry-service';
+import { fetchPlatformAdminLoginUrl } from '@/features/auth/admin-entry-service';
 import { AdminRetryButton } from '@/features/auth/admin-retry-button';
 import { computePortalDestination } from '@/features/auth/auth-session.schema';
 import { LogoutButton } from '@/features/auth/logout-button';
@@ -70,7 +70,7 @@ export default async function AdminPage() {
     );
   }
 
-  const loginResult = await fetchSuperAdminLoginUrl();
+  const loginResult = await fetchPlatformAdminLoginUrl();
 
   if (loginResult.ok) {
     redirect(loginResult.loginUrl);

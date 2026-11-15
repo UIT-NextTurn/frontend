@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { isSafeHttpUrl } from '@/features/auth/tenant-verify.schema';
 import { getServerEnv } from '@/lib/env';
 
-const superAdminLoginUrlSchema = z.object({
+const platformAdminLoginUrlSchema = z.object({
   success: z.literal(true),
   data: z.object({
     loginUrl: z.string().refine(isSafeHttpUrl, {
@@ -14,13 +14,14 @@ const superAdminLoginUrlSchema = z.object({
   }),
 });
 
-export type SuperAdminLoginUrlResult =
-  { ok: true; loginUrl: string } | { ok: false; message: string };
+export type PlatformAdminLoginUrlResult =
+  | { ok: true; loginUrl: string }
+  | { ok: false; message: string };
 
 /**
- * Fetches Keycloak Super Admin OIDC redirect URL server-side without X-Tenant-Code.
+ * Fetches Keycloak Platform Administrator OIDC redirect URL server-side without X-Tenant-Code.
  */
-export async function fetchSuperAdminLoginUrl(): Promise<SuperAdminLoginUrlResult> {
+export async function fetchPlatformAdminLoginUrl(): Promise<PlatformAdminLoginUrlResult> {
   let backendUrl: string;
   try {
     backendUrl = getServerEnv().backendUrl;
@@ -64,7 +65,7 @@ export async function fetchSuperAdminLoginUrl(): Promise<SuperAdminLoginUrlResul
     };
   }
 
-  const parsed = superAdminLoginUrlSchema.safeParse(payload);
+  const parsed = platformAdminLoginUrlSchema.safeParse(payload);
   if (!parsed.success) {
     return {
       ok: false,
