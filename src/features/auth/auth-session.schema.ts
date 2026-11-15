@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { isSafeHttpUrl, tenantCodePattern } from './tenant-verify.schema';
+import { isSafeHttpUrl, tenantCodeSchema } from './tenant-verify.schema';
 
 export const staffRoleSchema = z.enum(['SUPERADMIN', 'TENANT_ADMIN', 'COUNTER_STAFF']);
 
@@ -50,30 +50,27 @@ export type BackendAuthTokenData = z.infer<typeof backendAuthTokenDataSchema>;
  * Computes canonical portal path from role and Tenant slug, ignoring backend targetDashboardUrl.
  */
 export function computePortalDestination(
-  primaryRole: string,
+  primaryRole: StaffRole | (string & {}),
   tenantCode?: string | null
 ): string | null {
-  if (primaryRole === 'SUPERADMIN') {
-    return '/admin';
-  }
-
-  const normalizedTenantCode = tenantCode?.trim() ?? '';
-  const hasValidSlug =
-    normalizedTenantCode.length >= 3 &&
-    normalizedTenantCode.length <= 30 &&
-    tenantCodePattern.test(normalizedTenantCode);
-
-  if (!hasValidSlug) {
+  const parsedRole = staffRoleSchema.safeParse(primaryRole);
+  if (!parsedRole.success) {
     return null;
   }
 
-  if (primaryRole === 'TENANT_ADMIN') {
-    return `/${normalizedTenantCode}/tenant`;
+  if (parsedRole.data === 'SUPERADMIN') {
+    return '/admin';
   }
 
-  if (primaryRole === 'COUNTER_STAFF') {
-    return `/${normalizedTenantCode}/counter`;
+  const parsedTenantCode = tenantCodeSchema.safeParse(tenantCode);
+  if (!parsedTenantCode.success) {
+    return null;
   }
 
-  return null;
+  switch (parsedRole.data) {
+    case 'TENANT_ADMIN':
+      return `/${parsedTenantCode.data}/tenant`;
+    case 'COUNTER_STAFF':
+      return `/${parsedTenantCode.data}/counter`;
+  }
 }

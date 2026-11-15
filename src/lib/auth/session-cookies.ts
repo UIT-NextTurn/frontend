@@ -10,7 +10,7 @@ import {
   computePortalDestination,
 } from '@/features/auth/auth-session.schema';
 
-export const authCookieNames = {
+export const AUTH_COOKIE_NAMES = {
   accessToken: 'nt_access_token',
   refreshToken: 'nt_refresh_token',
   sessionMeta: 'nt_session_meta',
@@ -31,7 +31,10 @@ function getBaseCookieOptions() {
   };
 }
 
-function normalizeMaxAge(seconds: number | undefined): number | undefined {
+/**
+ * Normalizes cookie maxAge seconds, returning undefined when absent or non-positive.
+ */
+export function normalizeMaxAge(seconds: number | undefined): number | undefined {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) {
     return undefined;
   }
@@ -51,17 +54,17 @@ export function setSessionCookies(
   const accessMaxAge = normalizeMaxAge(tokenData.expiresIn);
   const refreshMaxAge = normalizeMaxAge(tokenData.refreshExpiresIn);
 
-  response.cookies.set(authCookieNames.accessToken, tokenData.accessToken, {
+  response.cookies.set(AUTH_COOKIE_NAMES.accessToken, tokenData.accessToken, {
     ...baseOptions,
     ...(accessMaxAge ? { maxAge: accessMaxAge } : {}),
   });
 
-  response.cookies.set(authCookieNames.refreshToken, tokenData.refreshToken, {
+  response.cookies.set(AUTH_COOKIE_NAMES.refreshToken, tokenData.refreshToken, {
     ...baseOptions,
     ...(refreshMaxAge ? { maxAge: refreshMaxAge } : {}),
   });
 
-  response.cookies.set(authCookieNames.sessionMeta, JSON.stringify(summary), {
+  response.cookies.set(AUTH_COOKIE_NAMES.sessionMeta, JSON.stringify(summary), {
     ...baseOptions,
     ...(refreshMaxAge ? { maxAge: refreshMaxAge } : {}),
   });
@@ -77,9 +80,9 @@ export function clearSessionCookies(response: NextResponse): void {
     expires: new Date(0),
   };
 
-  response.cookies.set(authCookieNames.accessToken, '', expiredOptions);
-  response.cookies.set(authCookieNames.refreshToken, '', expiredOptions);
-  response.cookies.set(authCookieNames.sessionMeta, '', expiredOptions);
+  response.cookies.set(AUTH_COOKIE_NAMES.accessToken, '', expiredOptions);
+  response.cookies.set(AUTH_COOKIE_NAMES.refreshToken, '', expiredOptions);
+  response.cookies.set(AUTH_COOKIE_NAMES.sessionMeta, '', expiredOptions);
 }
 
 /**
@@ -87,9 +90,9 @@ export function clearSessionCookies(response: NextResponse): void {
  */
 export async function getServerAuthCookies(): Promise<ServerAuthCookies> {
   const cookieStore = await cookies();
-  const accessToken = cookieStore.get(authCookieNames.accessToken)?.value?.trim() || null;
-  const refreshToken = cookieStore.get(authCookieNames.refreshToken)?.value?.trim() || null;
-  const rawMeta = cookieStore.get(authCookieNames.sessionMeta)?.value;
+  const accessToken = cookieStore.get(AUTH_COOKIE_NAMES.accessToken)?.value?.trim() || null;
+  const refreshToken = cookieStore.get(AUTH_COOKIE_NAMES.refreshToken)?.value?.trim() || null;
+  const rawMeta = cookieStore.get(AUTH_COOKIE_NAMES.sessionMeta)?.value;
 
   if (!rawMeta) {
     return { accessToken, refreshToken, session: null };

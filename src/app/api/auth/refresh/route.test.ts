@@ -163,4 +163,25 @@ describe('POST /api/auth/refresh', () => {
     expect(response.status).toBe(503);
     expect(response.headers.getSetCookie()).toHaveLength(0);
   });
+
+  it.each([500, 502])(
+    'returns 502 and preserves session cookies on transient non-JSON %i upstream response',
+    async (upstreamStatus) => {
+      mockCookieGet.mockImplementation((name: string) =>
+        name === 'nt_refresh_token' ? { name, value: 'valid-refresh-jwt' } : undefined
+      );
+
+      jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce(new Response('Bad Gateway', { status: upstreamStatus }));
+
+      const response = await POST();
+      const body = await response.json();
+
+      expect(response.status).toBe(502);
+      expect(body.success).toBe(false);
+      expect(body.errorCode).toBe('SYS_001');
+      expect(response.headers.getSetCookie()).toHaveLength(0);
+    }
+  );
 });

@@ -1,6 +1,32 @@
 /** @jest-environment node */
 
+import { z } from 'zod';
+
+import type { InactiveTenantStatus } from '@/features/auth/tenant-verify.schema';
+
 import { POST } from './route';
+
+const bffErrorBodySchema = z.object({
+  success: z.literal(false),
+  errorCode: z.string(),
+  message: z.string(),
+  tenantStatus: z.string().optional(),
+  data: z.record(z.string(), z.string()).optional(),
+});
+
+async function parseErrorBody(response: Response) {
+  return bffErrorBodySchema.parse(await response.json());
+}
+
+function parseErrorJson(rawBody: string) {
+  return bffErrorBodySchema.parse(JSON.parse(rawBody));
+}
+
+const inactiveTenantStatuses: InactiveTenantStatus[] = [
+  'PENDING_APPROVAL',
+  'SUSPENDED',
+  'REJECTED',
+];
 
 describe('POST /api/auth/tenant/verify', () => {
   const originalEnv = process.env;
@@ -99,7 +125,7 @@ describe('POST /api/auth/tenant/verify', () => {
     });
 
     const response = await POST(request);
-    const body = (await response.json()) as { success: boolean; errorCode?: string };
+    const body = await parseErrorBody(response);
 
     expect(response.status).toBe(502);
     expect(body.success).toBe(false);
@@ -116,11 +142,7 @@ describe('POST /api/auth/tenant/verify', () => {
     });
 
     const response = await POST(request);
-    const body = (await response.json()) as {
-      success: boolean;
-      errorCode?: string;
-      data?: Record<string, string>;
-    };
+    const body = await parseErrorBody(response);
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(response.status).toBe(400);
@@ -129,7 +151,7 @@ describe('POST /api/auth/tenant/verify', () => {
     expect(body.data?.tenantCode).toBeTruthy();
   });
 
-  it.each(['PENDING_APPROVAL', 'SUSPENDED', 'REJECTED'] as const)(
+  it.each(inactiveTenantStatuses)(
     'intercepts 403 AUTH_004 and extracts inactive tenantStatus %s without loginUrl',
     async (tenantStatus) => {
       jest.spyOn(global, 'fetch').mockResolvedValueOnce(
@@ -152,12 +174,7 @@ describe('POST /api/auth/tenant/verify', () => {
       });
 
       const response = await POST(request);
-      const body = (await response.json()) as {
-        success: boolean;
-        errorCode?: string;
-        tenantStatus?: string;
-        data?: unknown;
-      };
+      const body = await parseErrorBody(response);
 
       expect(response.status).toBe(403);
       expect(body.success).toBe(false);
@@ -188,17 +205,46 @@ describe('POST /api/auth/tenant/verify', () => {
     });
 
     const response = await POST(request);
-    const body = (await response.json()) as {
-      success: boolean;
-      errorCode?: string;
-      tenantStatus?: string;
-    };
+    const body = await parseErrorBody(response);
 
     expect(response.status).toBe(403);
     expect(body.success).toBe(false);
     expect(body.errorCode).toBe('AUTH_004');
     expect(body.tenantStatus).toBeUndefined();
   });
+
+  it.each([['unexpected'], { count: 42, nested: ['x'] }])(
+    'maps 403 AUTH_004 cleanly when upstream data is non-string payload %p',
+    async (nonStringData) => {
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 403,
+            success: false,
+            errorCode: 'AUTH_004',
+            message: 'Tenant facility is not active. Current status: SUSPENDED',
+            data: nonStringData,
+          }),
+          { status: 403, headers: { 'content-type': 'application/json' } }
+        )
+      );
+
+      const request = new Request('http://localhost:3000/api/auth/tenant/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantCode: 'pk-alpha' }),
+      });
+
+      const response = await POST(request);
+      const body = await parseErrorBody(response);
+
+      expect(response.status).toBe(403);
+      expect(body.success).toBe(false);
+      expect(body.errorCode).toBe('AUTH_004');
+      expect(body.tenantStatus).toBe('SUSPENDED');
+      expect(body.data).toBeUndefined();
+    }
+  );
 
   it('normalizes 404 AUTH_003 unknown tenant response', async () => {
     jest.spyOn(global, 'fetch').mockResolvedValueOnce(
@@ -221,7 +267,7 @@ describe('POST /api/auth/tenant/verify', () => {
     });
 
     const response = await POST(request);
-    const body = (await response.json()) as { success: boolean; errorCode?: string };
+    const body = await parseErrorBody(response);
 
     expect(response.status).toBe(404);
     expect(body.success).toBe(false);
@@ -249,11 +295,7 @@ describe('POST /api/auth/tenant/verify', () => {
     });
 
     const response = await POST(request);
-    const body = (await response.json()) as {
-      success: boolean;
-      errorCode?: string;
-      data?: Record<string, string>;
-    };
+    const body = await parseErrorBody(response);
 
     expect(response.status).toBe(400);
     expect(body.success).toBe(false);
@@ -281,7 +323,7 @@ describe('POST /api/auth/tenant/verify', () => {
     });
 
     const response = await POST(request);
-    const body = (await response.json()) as { success: boolean; errorCode?: string };
+    const body = await parseErrorBody(response);
 
     expect(response.status).toBe(400);
     expect(body.success).toBe(false);
@@ -314,7 +356,7 @@ describe('POST /api/auth/tenant/verify', () => {
 
       const response = await POST(request);
       const rawBody = await response.text();
-      const body = JSON.parse(rawBody) as { success: boolean; errorCode?: string };
+      const body = parseErrorJson(rawBody);
 
       expect(response.status).toBe(expectedStatus);
       expect(body.success).toBe(false);
@@ -336,7 +378,7 @@ describe('POST /api/auth/tenant/verify', () => {
 
     const response = await POST(request);
     const rawBody = await response.text();
-    const body = JSON.parse(rawBody) as { success: boolean; errorCode?: string };
+    const body = parseErrorJson(rawBody);
 
     expect(response.status).toBe(503);
     expect(body.success).toBe(false);

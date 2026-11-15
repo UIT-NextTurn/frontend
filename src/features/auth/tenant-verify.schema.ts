@@ -1,15 +1,17 @@
 import { z } from 'zod';
 
-export const tenantCodePattern = /^[a-z0-9-]+$/;
+export const TENANT_CODE_PATTERN = /^[a-z0-9-]+$/;
+
+export const tenantCodeSchema = z
+  .string()
+  .trim()
+  .min(1, 'Vui lòng nhập mã cơ sở.')
+  .min(3, 'Mã cơ sở phải có từ 3 đến 30 ký tự.')
+  .max(30, 'Mã cơ sở tối đa 30 ký tự.')
+  .regex(TENANT_CODE_PATTERN, 'Mã cơ sở chỉ gồm chữ thường không dấu, số và dấu gạch ngang (-).');
 
 export const tenantVerifySchema = z.object({
-  tenantCode: z
-    .string()
-    .trim()
-    .min(1, 'Vui lòng nhập mã cơ sở.')
-    .min(3, 'Mã cơ sở phải có từ 3 đến 30 ký tự.')
-    .max(30, 'Mã cơ sở tối đa 30 ký tự.')
-    .regex(tenantCodePattern, 'Mã cơ sở chỉ gồm chữ thường không dấu, số và dấu gạch ngang (-).'),
+  tenantCode: tenantCodeSchema,
 });
 
 export type TenantVerifyInput = z.infer<typeof tenantVerifySchema>;
