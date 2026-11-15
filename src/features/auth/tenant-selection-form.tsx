@@ -1,11 +1,12 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
+import { AlertTriangle, Ban, Clock, Loader2, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -18,6 +19,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  type InactiveTenantStatus,
+  inactiveTenantStatusSchema,
   isSafeHttpUrl,
   type TenantVerifyInput,
   tenantVerifyResponseDataSchema,
@@ -29,6 +32,65 @@ const verifySuccessEnvelopeSchema = z.object({
   data: tenantVerifyResponseDataSchema,
 });
 
+const verifyErrorEnvelopeSchema = z.object({
+  success: z.literal(false),
+  errorCode: z.string().optional(),
+  message: z.string().optional(),
+  tenantStatus: inactiveTenantStatusSchema.optional(),
+});
+
+interface AlertBannerState {
+  variant: 'warning' | 'destructive';
+  icon: 'clock' | 'ban' | 'x' | 'warning';
+  title: string;
+  description: string;
+}
+
+const inactiveTenantAlerts: Record<InactiveTenantStatus, AlertBannerState> = {
+  PENDING_APPROVAL: {
+    variant: 'warning',
+    icon: 'clock',
+    title: 'Cơ sở đang chờ phê duyệt',
+    description:
+      'Hồ sơ đăng ký cơ sở này đang chờ Quản trị viên nền tảng xét duyệt. Vui lòng kiểm tra lại sau hoặc liên hệ bộ phận hỗ trợ nền tảng.',
+  },
+  SUSPENDED: {
+    variant: 'destructive',
+    icon: 'ban',
+    title: 'Cơ sở đang tạm ngưng',
+    description:
+      'Cơ sở này hiện đang tạm ngưng hoạt động trên nền tảng. Vui lòng liên hệ Quản trị viên cơ sở hoặc bộ phận hỗ trợ nền tảng.',
+  },
+  REJECTED: {
+    variant: 'destructive',
+    icon: 'x',
+    title: 'Đăng ký cơ sở không được phê duyệt',
+    description:
+      'Yêu cầu đăng ký cơ sở này đã bị từ chối. Vui lòng liên hệ Quản trị viên cơ sở hoặc bộ phận hỗ trợ nền tảng để biết thêm chi tiết.',
+  },
+};
+
+const genericInactiveAlert: AlertBannerState = {
+  variant: 'warning',
+  icon: 'warning',
+  title: 'Cơ sở chưa sẵn sàng đăng nhập',
+  description:
+    'Cơ sở này hiện chưa ở trạng thái hoạt động. Vui lòng kiểm tra lại mã cơ sở hoặc liên hệ bộ phận hỗ trợ nền tảng.',
+};
+
+function renderAlertIcon(icon: AlertBannerState['icon']) {
+  switch (icon) {
+    case 'clock':
+      return <Clock className="h-4 w-4" aria-hidden="true" />;
+    case 'ban':
+      return <Ban className="h-4 w-4" aria-hidden="true" />;
+    case 'x':
+      return <XCircle className="h-4 w-4" aria-hidden="true" />;
+    case 'warning':
+      return <AlertTriangle className="h-4 w-4" aria-hidden="true" />;
+  }
+}
+
 export interface TenantSelectionFormProps {
   onRedirect?: (url: string) => void;
 }
@@ -39,6 +101,7 @@ function defaultRedirect(url: string) {
 
 export function TenantSelectionForm({ onRedirect }: TenantSelectionFormProps) {
   const [isPending, setIsPending] = useState(false);
+  const [bannerAlert, setBannerAlert] = useState<AlertBannerState | null>(null);
 
   const {
     register,
@@ -52,6 +115,7 @@ export function TenantSelectionForm({ onRedirect }: TenantSelectionFormProps) {
   });
 
   async function onSubmit(values: TenantVerifyInput) {
+    setBannerAlert(null);
     setIsPending(true);
     try {
       const response = await fetch('/api/auth/tenant/verify', {
@@ -69,6 +133,12 @@ export function TenantSelectionForm({ onRedirect }: TenantSelectionFormProps) {
         const redirectTarget = onRedirect ?? defaultRedirect;
         redirectTarget(parsed.data.data.loginUrl);
         return;
+      }
+
+      const parsedError = verifyErrorEnvelopeSchema.safeParse(payload);
+      if (parsedError.success && parsedError.data.errorCode === 'AUTH_004') {
+        const status = parsedError.data.tenantStatus;
+        setBannerAlert(status ? inactiveTenantAlerts[status] : genericInactiveAlert);
       }
     } finally {
       setIsPending(false);
@@ -113,7 +183,15 @@ export function TenantSelectionForm({ onRedirect }: TenantSelectionFormProps) {
         </div>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="space-y-4">
+        {bannerAlert ? (
+          <Alert variant={bannerAlert.variant}>
+            {renderAlertIcon(bannerAlert.icon)}
+            <AlertTitle>{bannerAlert.title}</AlertTitle>
+            <AlertDescription>{bannerAlert.description}</AlertDescription>
+          </Alert>
+        ) : null}
+
         <form noValidate onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div className="space-y-2">
             <Label htmlFor="tenantCode">Mã cơ sở</Label>

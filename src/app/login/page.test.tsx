@@ -106,4 +106,60 @@ describe('/login Tenant Selection', () => {
       expect(onRedirect).toHaveBeenCalledWith('https://sso.nextturn.local/auth/pk-alpha');
     });
   });
+
+  it.each([
+    {
+      tenantStatus: 'PENDING_APPROVAL',
+      codeInput: 'pk-pending',
+      expectedTitle: 'Cơ sở đang chờ phê duyệt',
+      expectedSnippet: 'Quản trị viên nền tảng',
+    },
+    {
+      tenantStatus: 'SUSPENDED',
+      codeInput: 'pk-suspended',
+      expectedTitle: 'Cơ sở đang tạm ngưng',
+      expectedSnippet: 'tạm ngưng hoạt động',
+    },
+    {
+      tenantStatus: 'REJECTED',
+      codeInput: 'pk-rejected',
+      expectedTitle: 'Đăng ký cơ sở không được phê duyệt',
+      expectedSnippet: 'bị từ chối',
+    },
+    {
+      tenantStatus: undefined,
+      codeInput: 'pk-inactive',
+      expectedTitle: 'Cơ sở chưa sẵn sàng đăng nhập',
+      expectedSnippet: 'chưa ở trạng thái hoạt động',
+    },
+  ])(
+    'renders distinct Vietnamese recovery alert for AUTH_004 ($tenantStatus) and preserves input',
+    async ({ tenantStatus, codeInput, expectedTitle, expectedSnippet }) => {
+      const user = userEvent.setup();
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: false,
+            errorCode: 'AUTH_004',
+            message: 'Cơ sở hiện chưa sẵn sàng hoạt động.',
+            ...(tenantStatus ? { tenantStatus } : {}),
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+      render(<TenantSelectionForm />);
+
+      const input = screen.getByLabelText('Mã cơ sở');
+      await user.type(input, codeInput);
+      await user.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(expectedTitle);
+      expect(alert).toHaveTextContent(expectedSnippet);
+      expect(alert.querySelector('svg')).not.toBeNull();
+      expect(input).toHaveValue(codeInput);
+      expect(screen.getByRole('button', { name: 'Tiếp tục' })).toBeEnabled();
+    }
+  );
 });

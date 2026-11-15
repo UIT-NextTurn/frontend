@@ -128,4 +128,75 @@ describe('POST /api/auth/tenant/verify', () => {
     expect(body.errorCode).toBe('SYS_002');
     expect(body.data?.tenantCode).toBeTruthy();
   });
+
+  it.each(['PENDING_APPROVAL', 'SUSPENDED', 'REJECTED'] as const)(
+    'intercepts 403 AUTH_004 and extracts inactive tenantStatus %s without loginUrl',
+    async (tenantStatus) => {
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: 403,
+            success: false,
+            errorCode: 'AUTH_004',
+            message: `Tenant facility is not active. Current status: ${tenantStatus}`,
+            data: null,
+          }),
+          { status: 403, headers: { 'content-type': 'application/json' } }
+        )
+      );
+
+      const request = new Request('http://localhost:3000/api/auth/tenant/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantCode: 'pk-alpha' }),
+      });
+
+      const response = await POST(request);
+      const body = (await response.json()) as {
+        success: boolean;
+        errorCode?: string;
+        tenantStatus?: string;
+        data?: unknown;
+      };
+
+      expect(response.status).toBe(403);
+      expect(body.success).toBe(false);
+      expect(body.errorCode).toBe('AUTH_004');
+      expect(body.tenantStatus).toBe(tenantStatus);
+      expect(body.data).toBeUndefined();
+    }
+  );
+
+  it('handles 403 AUTH_004 cleanly when status token is absent from message', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: 403,
+          success: false,
+          errorCode: 'AUTH_004',
+          message: 'Tenant facility is not active.',
+          data: null,
+        }),
+        { status: 403, headers: { 'content-type': 'application/json' } }
+      )
+    );
+
+    const request = new Request('http://localhost:3000/api/auth/tenant/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantCode: 'pk-alpha' }),
+    });
+
+    const response = await POST(request);
+    const body = (await response.json()) as {
+      success: boolean;
+      errorCode?: string;
+      tenantStatus?: string;
+    };
+
+    expect(response.status).toBe(403);
+    expect(body.success).toBe(false);
+    expect(body.errorCode).toBe('AUTH_004');
+    expect(body.tenantStatus).toBeUndefined();
+  });
 });

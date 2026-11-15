@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import {
+  extractInactiveTenantStatus,
   tenantVerifyResponseDataSchema,
   tenantVerifySchema,
 } from '@/features/auth/tenant-verify.schema';
@@ -10,6 +11,13 @@ import { getServerEnv } from '@/lib/env';
 const backendVerifySuccessSchema = z.object({
   success: z.literal(true),
   data: tenantVerifyResponseDataSchema,
+});
+
+const backendErrorEnvelopeSchema = z.object({
+  success: z.literal(false).optional(),
+  errorCode: z.string().optional(),
+  message: z.string().optional(),
+  data: z.unknown().optional(),
 });
 
 export async function POST(request: Request) {
@@ -54,6 +62,24 @@ export async function POST(request: Request) {
   });
 
   const payload: unknown = await upstream.json();
+  const errorEnvelope = backendErrorEnvelopeSchema.safeParse(payload);
+  if (
+    upstream.status === 403 &&
+    errorEnvelope.success &&
+    errorEnvelope.data.errorCode === 'AUTH_004'
+  ) {
+    const tenantStatus = extractInactiveTenantStatus(errorEnvelope.data.message);
+    return NextResponse.json(
+      {
+        success: false,
+        errorCode: 'AUTH_004',
+        message: 'Cơ sở hiện chưa sẵn sàng hoạt động.',
+        ...(tenantStatus ? { tenantStatus } : {}),
+      },
+      { status: 403 }
+    );
+  }
+
   const verified = backendVerifySuccessSchema.safeParse(payload);
   if (!verified.success) {
     return NextResponse.json(

@@ -26,6 +26,29 @@ export function isSafeHttpUrl(candidate: string): boolean {
   }
 }
 
+export const inactiveTenantStatusSchema = z.enum(['PENDING_APPROVAL', 'SUSPENDED', 'REJECTED']);
+
+export type InactiveTenantStatus = z.infer<typeof inactiveTenantStatusSchema>;
+
+/**
+ * Extracts a known non-active Tenant status from backend AUTH_004 message text.
+ */
+export function extractInactiveTenantStatus(
+  message: string | undefined
+): InactiveTenantStatus | undefined {
+  if (!message) {
+    return undefined;
+  }
+
+  const match = message.match(/\b(PENDING_APPROVAL|SUSPENDED|REJECTED)\b/);
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  const parsed = inactiveTenantStatusSchema.safeParse(match[1]);
+  return parsed.success ? parsed.data : undefined;
+}
+
 export const tenantVerifyResponseDataSchema = z.object({
   tenantId: z.string(),
   tenantCode: z.string(),
