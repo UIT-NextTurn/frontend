@@ -162,4 +162,96 @@ describe('/login Tenant Selection', () => {
       expect(screen.getByRole('button', { name: 'Tiếp tục' })).toBeEnabled();
     }
   );
+
+  it('displays unknown-tenant guidance on 404 AUTH_003 and preserves input', async () => {
+    const user = userEvent.setup();
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: false,
+          errorCode: 'AUTH_003',
+          message: 'Không tìm thấy cơ sở với mã đã nhập.',
+        }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    render(<TenantSelectionForm />);
+
+    const input = screen.getByLabelText('Mã cơ sở');
+    await user.type(input, 'pk-missing');
+    await user.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Không tìm thấy cơ sở');
+    expect(input).toHaveValue('pk-missing');
+    expect(screen.getByRole('button', { name: 'Tiếp tục' })).toBeEnabled();
+  });
+
+  it('maps 400 SYS_002 field error directly onto the tenantCode input', async () => {
+    const user = userEvent.setup();
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: false,
+          errorCode: 'SYS_002',
+          message: 'Mã cơ sở không hợp lệ.',
+          data: { tenantCode: 'Mã cơ sở không được máy chủ chấp nhận.' },
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    render(<TenantSelectionForm />);
+
+    const input = screen.getByLabelText('Mã cơ sở');
+    await user.type(input, 'pk-alpha');
+    await user.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+
+    const fieldError = await screen.findByRole('alert');
+    expect(fieldError).toHaveTextContent('Mã cơ sở không được máy chủ chấp nhận.');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('renders retryable alert on 5xx/network failure and recovers when clicking Thử lại', async () => {
+    const user = userEvent.setup();
+    const onRedirect = jest.fn();
+
+    jest
+      .spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('Network down'))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              tenantId: 't-1',
+              tenantCode: 'pk-alpha',
+              tenantName: 'Phòng khám Alpha',
+              status: 'ACTIVE',
+              organisationId: 'org-1',
+              loginUrl: 'https://sso.nextturn.local/auth/pk-alpha',
+              allowedRoles: ['TENANT_ADMIN'],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
+      );
+
+    render(<TenantSelectionForm onRedirect={onRedirect} />);
+
+    await user.type(screen.getByLabelText('Mã cơ sở'), 'pk-alpha');
+    await user.click(screen.getByRole('button', { name: 'Tiếp tục' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Không thể kết nối|thử lại/i);
+
+    const retryButton = screen.getByRole('button', { name: 'Thử lại' });
+    expect(retryButton.className).toContain('min-h-[44px]');
+    await user.click(retryButton);
+
+    await waitFor(() => {
+      expect(onRedirect).toHaveBeenCalledWith('https://sso.nextturn.local/auth/pk-alpha');
+    });
+  });
 });

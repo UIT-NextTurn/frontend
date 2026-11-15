@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AlertTriangle, Ban, Clock, Loader2, XCircle } from 'lucide-react';
+import { AlertTriangle, Ban, Clock, Loader2, RefreshCw, SearchX, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -37,13 +37,15 @@ const verifyErrorEnvelopeSchema = z.object({
   errorCode: z.string().optional(),
   message: z.string().optional(),
   tenantStatus: inactiveTenantStatusSchema.optional(),
+  data: z.record(z.string(), z.string()).nullable().optional(),
 });
 
 interface AlertBannerState {
   variant: 'warning' | 'destructive';
-  icon: 'clock' | 'ban' | 'x' | 'warning';
+  icon: 'clock' | 'ban' | 'x' | 'warning' | 'search';
   title: string;
   description: string;
+  retryable?: boolean;
 }
 
 const inactiveTenantAlerts: Record<InactiveTenantStatus, AlertBannerState> = {
@@ -78,6 +80,22 @@ const genericInactiveAlert: AlertBannerState = {
     'Cơ sở này hiện chưa ở trạng thái hoạt động. Vui lòng kiểm tra lại mã cơ sở hoặc liên hệ bộ phận hỗ trợ nền tảng.',
 };
 
+const unknownTenantAlert: AlertBannerState = {
+  variant: 'destructive',
+  icon: 'search',
+  title: 'Không tìm thấy cơ sở',
+  description:
+    'Mã cơ sở bạn nhập không tồn tại hoặc đã ngừng sử dụng. Vui lòng kiểm tra lại chính tả hoặc liên hệ Quản trị viên cơ sở.',
+};
+
+const retryableSystemAlert: AlertBannerState = {
+  variant: 'destructive',
+  icon: 'warning',
+  title: 'Không thể kết nối đến hệ thống xác thực',
+  description: 'Dịch vụ đăng nhập hiện tạm thời gián đoạn. Vui lòng kiểm tra kết nối và thử lại.',
+  retryable: true,
+};
+
 function renderAlertIcon(icon: AlertBannerState['icon']) {
   switch (icon) {
     case 'clock':
@@ -86,6 +104,8 @@ function renderAlertIcon(icon: AlertBannerState['icon']) {
       return <Ban className="h-4 w-4" aria-hidden="true" />;
     case 'x':
       return <XCircle className="h-4 w-4" aria-hidden="true" />;
+    case 'search':
+      return <SearchX className="h-4 w-4" aria-hidden="true" />;
     case 'warning':
       return <AlertTriangle className="h-4 w-4" aria-hidden="true" />;
   }
@@ -106,6 +126,7 @@ export function TenantSelectionForm({ onRedirect }: TenantSelectionFormProps) {
   const {
     register,
     handleSubmit,
+    setError,
     formState: { errors },
   } = useForm<TenantVerifyInput>({
     resolver: zodResolver(tenantVerifySchema),
@@ -136,10 +157,31 @@ export function TenantSelectionForm({ onRedirect }: TenantSelectionFormProps) {
       }
 
       const parsedError = verifyErrorEnvelopeSchema.safeParse(payload);
-      if (parsedError.success && parsedError.data.errorCode === 'AUTH_004') {
-        const status = parsedError.data.tenantStatus;
-        setBannerAlert(status ? inactiveTenantAlerts[status] : genericInactiveAlert);
+      const errorCode = parsedError.success ? parsedError.data.errorCode : undefined;
+
+      if (errorCode === 'SYS_002') {
+        const fieldMessage =
+          parsedError.data?.data?.tenantCode ??
+          parsedError.data?.message ??
+          'Mã cơ sở không đúng định dạng.';
+        setError('tenantCode', { type: 'server', message: fieldMessage });
+        return;
       }
+
+      if (errorCode === 'AUTH_004') {
+        const status = parsedError.data?.tenantStatus;
+        setBannerAlert(status ? inactiveTenantAlerts[status] : genericInactiveAlert);
+        return;
+      }
+
+      if (response.status === 404 || errorCode === 'AUTH_003') {
+        setBannerAlert(unknownTenantAlert);
+        return;
+      }
+
+      setBannerAlert(retryableSystemAlert);
+    } catch {
+      setBannerAlert(retryableSystemAlert);
     } finally {
       setIsPending(false);
     }
@@ -188,7 +230,21 @@ export function TenantSelectionForm({ onRedirect }: TenantSelectionFormProps) {
           <Alert variant={bannerAlert.variant}>
             {renderAlertIcon(bannerAlert.icon)}
             <AlertTitle>{bannerAlert.title}</AlertTitle>
-            <AlertDescription>{bannerAlert.description}</AlertDescription>
+            <AlertDescription className="space-y-3">
+              <p>{bannerAlert.description}</p>
+              {bannerAlert.retryable ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="default"
+                  disabled={isPending}
+                  onClick={() => void handleSubmit(onSubmit)()}
+                >
+                  <RefreshCw className="h-4 w-4" aria-hidden="true" />
+                  Thử lại
+                </Button>
+              ) : null}
+            </AlertDescription>
           </Alert>
         ) : null}
 

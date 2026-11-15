@@ -199,4 +199,148 @@ describe('POST /api/auth/tenant/verify', () => {
     expect(body.errorCode).toBe('AUTH_004');
     expect(body.tenantStatus).toBeUndefined();
   });
+
+  it('normalizes 404 AUTH_003 unknown tenant response', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: 404,
+          success: false,
+          errorCode: 'AUTH_003',
+          message: 'Tenant not found',
+          data: null,
+        }),
+        { status: 404, headers: { 'content-type': 'application/json' } }
+      )
+    );
+
+    const request = new Request('http://localhost:3000/api/auth/tenant/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantCode: 'unknown-clinic' }),
+    });
+
+    const response = await POST(request);
+    const body = (await response.json()) as { success: boolean; errorCode?: string };
+
+    expect(response.status).toBe(404);
+    expect(body.success).toBe(false);
+    expect(body.errorCode).toBe('AUTH_003');
+  });
+
+  it('normalizes 400 SYS_002 validation response preserving data.tenantCode', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: 400,
+          success: false,
+          errorCode: 'SYS_002',
+          message: 'Validation failed',
+          data: { tenantCode: 'Mã cơ sở phải từ 3 đến 30 ký tự' },
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } }
+      )
+    );
+
+    const request = new Request('http://localhost:3000/api/auth/tenant/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantCode: 'pk-alpha' }),
+    });
+
+    const response = await POST(request);
+    const body = (await response.json()) as {
+      success: boolean;
+      errorCode?: string;
+      data?: Record<string, string>;
+    };
+
+    expect(response.status).toBe(400);
+    expect(body.success).toBe(false);
+    expect(body.errorCode).toBe('SYS_002');
+    expect(body.data).toEqual({ tenantCode: 'Mã cơ sở phải từ 3 đến 30 ký tự' });
+  });
+
+  it('normalizes 400 AUTH_009 header/body mismatch error', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: 400,
+          success: false,
+          errorCode: 'AUTH_009',
+          message: 'Tenant header mismatch',
+        }),
+        { status: 400, headers: { 'content-type': 'application/json' } }
+      )
+    );
+
+    const request = new Request('http://localhost:3000/api/auth/tenant/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantCode: 'pk-alpha' }),
+    });
+
+    const response = await POST(request);
+    const body = (await response.json()) as { success: boolean; errorCode?: string };
+
+    expect(response.status).toBe(400);
+    expect(body.success).toBe(false);
+    expect(body.errorCode).toBe('AUTH_009');
+  });
+
+  it.each([
+    { upstreamStatus: 500, upstreamCode: 'AUTH_012', expectedStatus: 502 },
+    { upstreamStatus: 503, upstreamCode: 'AUTH_011', expectedStatus: 503 },
+  ])(
+    'normalizes upstream $upstreamStatus $upstreamCode without leaking backend URL',
+    async ({ upstreamStatus, upstreamCode, expectedStatus }) => {
+      jest.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: upstreamStatus,
+            success: false,
+            errorCode: upstreamCode,
+            message: 'Keycloak error at http://backend.internal:8080',
+          }),
+          { status: upstreamStatus, headers: { 'content-type': 'application/json' } }
+        )
+      );
+
+      const request = new Request('http://localhost:3000/api/auth/tenant/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantCode: 'pk-alpha' }),
+      });
+
+      const response = await POST(request);
+      const rawBody = await response.text();
+      const body = JSON.parse(rawBody) as { success: boolean; errorCode?: string };
+
+      expect(response.status).toBe(expectedStatus);
+      expect(body.success).toBe(false);
+      expect(body.errorCode).toBe(upstreamCode);
+      expect(rawBody).not.toContain('backend.internal');
+    }
+  );
+
+  it('returns 503 SYS_001 without leaking NEXTTURN_BACKEND_URL when backend is unreachable', async () => {
+    jest
+      .spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED http://backend.internal:8080'));
+
+    const request = new Request('http://localhost:3000/api/auth/tenant/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantCode: 'pk-alpha' }),
+    });
+
+    const response = await POST(request);
+    const rawBody = await response.text();
+    const body = JSON.parse(rawBody) as { success: boolean; errorCode?: string };
+
+    expect(response.status).toBe(503);
+    expect(body.success).toBe(false);
+    expect(body.errorCode).toBe('SYS_001');
+    expect(rawBody).not.toContain('backend.internal');
+  });
 });
