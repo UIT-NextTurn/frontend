@@ -45,14 +45,12 @@ describe('normalizeMaxAge', () => {
 
 describe('session cookie writers', () => {
   const originalEnv = process.env;
-  const originalNodeEnv = process.env.NODE_ENV;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
 
   afterEach(() => {
-    Object.defineProperty(process.env, 'NODE_ENV', {
-      value: originalNodeEnv,
-      configurable: true,
-      writable: true,
-    });
     process.env = originalEnv;
   });
 
@@ -132,11 +130,7 @@ describe('session cookie writers', () => {
   });
 
   it('expires all authentication cookies cleanly in clearSessionCookies', () => {
-    Object.defineProperty(process.env, 'NODE_ENV', {
-      value: 'production',
-      configurable: true,
-      writable: true,
-    });
+    process.env = { ...originalEnv, NODE_ENV: 'production' };
 
     const response = NextResponse.json({ ok: true });
     clearSessionCookies(response);

@@ -15,8 +15,7 @@ const platformAdminLoginUrlSchema = z.object({
 });
 
 export type PlatformAdminLoginUrlResult =
-  | { ok: true; loginUrl: string }
-  | { ok: false; message: string };
+  { ok: true; loginUrl: string } | { ok: false; message: string };
 
 /**
  * Fetches Keycloak Platform Administrator OIDC redirect URL server-side without X-Tenant-Code.

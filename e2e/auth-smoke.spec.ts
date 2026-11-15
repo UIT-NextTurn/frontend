@@ -197,6 +197,7 @@ test.describe('Authentication & Entry Flows E2E', () => {
     const missingCodeLink = page.getByRole('link', { name: 'Quay lại chọn cơ sở' });
     await expect(missingCodeLink).toHaveAttribute('href', '/login');
     await expectTouchTarget(missingCodeLink);
+    await expect.poll(() => servers.state.logoutCalls).toBe(1);
 
     await page.goto(`${servers.baseUrl}/auth/callback?code=code-tenant-admin`);
     await page.waitForURL(`**/pk-alpha/tenant`);
@@ -213,7 +214,7 @@ test.describe('Authentication & Entry Flows E2E', () => {
         return currentCookies.some((cookie) => cookie.name === 'nt_access_token');
       })
       .toBe(false);
-    expect(servers.state.logoutCalls).toBe(1);
+    expect(servers.state.logoutCalls).toBe(2);
 
     const cookiesAfterDenied = await context.cookies();
     for (const cookieName of ['nt_refresh_token', 'nt_session_meta']) {
