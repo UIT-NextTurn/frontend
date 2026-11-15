@@ -5,13 +5,32 @@ import { TenantSelectionForm } from '@/features/auth/tenant-selection-form';
 
 import LoginPage from './page';
 
+const mockRedirect = jest.fn((target: string) => {
+  throw new Error(`NEXT_REDIRECT:${target}`);
+});
+const mockCookieGet = jest.fn();
+
+jest.mock('next/headers', () => ({
+  cookies: jest.fn(async () => ({
+    get: mockCookieGet,
+  })),
+}));
+
+jest.mock('next/navigation', () => ({
+  redirect: (target: string) => mockRedirect(target),
+}));
+
 describe('/login Tenant Selection', () => {
   afterEach(() => {
+    mockCookieGet.mockReset();
+    mockRedirect.mockClear();
     jest.restoreAllMocks();
   });
 
-  it('renders semantic landmarks, Vietnamese copy, and 48px touch-target controls', () => {
-    render(<LoginPage />);
+  it('renders semantic landmarks, Vietnamese copy, and 48px touch-target controls when session cookies are absent', async () => {
+    mockCookieGet.mockReturnValue(undefined);
+    const ui = await LoginPage();
+    render(ui);
 
     expect(screen.getByRole('main')).toBeInTheDocument();
     expect(
@@ -254,4 +273,48 @@ describe('/login Tenant Selection', () => {
       expect(onRedirect).toHaveBeenCalledWith('https://sso.nextturn.local/auth/pk-alpha');
     });
   });
+
+  it.each([
+    {
+      primaryRole: 'SUPERADMIN',
+      tenantCode: null,
+      expectedPath: '/admin',
+    },
+    {
+      primaryRole: 'TENANT_ADMIN',
+      tenantCode: 'pk-alpha',
+      expectedPath: '/pk-alpha/tenant',
+    },
+    {
+      primaryRole: 'COUNTER_STAFF',
+      tenantCode: 'pk-alpha',
+      expectedPath: '/pk-alpha/counter',
+    },
+  ])(
+    'redirects authenticated $primaryRole visitor directly to $expectedPath',
+    async ({ primaryRole, tenantCode, expectedPath }) => {
+      mockCookieGet.mockImplementation((name: string) => {
+        if (name === 'nt_access_token') {
+          return { name, value: 'active-jwt' };
+        }
+        if (name === 'nt_session_meta') {
+          return {
+            name,
+            value: JSON.stringify({
+              userId: 'u-1',
+              email: 'staff@nextturn.vn',
+              fullName: 'Nhân sự NextTurn',
+              primaryRole,
+              roles: [primaryRole],
+              tenantCode,
+            }),
+          };
+        }
+        return undefined;
+      });
+
+      await expect(LoginPage()).rejects.toThrow(`NEXT_REDIRECT:${expectedPath}`);
+      expect(mockRedirect).toHaveBeenCalledWith(expectedPath);
+    }
+  );
 });

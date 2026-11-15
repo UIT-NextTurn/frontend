@@ -27,6 +27,10 @@ const authErrorCatalog: Record<string, { defaultStatus: number; message: string 
     defaultStatus: 401,
     message: 'Phiên xác thực không hợp lệ. Vui lòng thử đăng nhập lại.',
   },
+  AUTH_008: {
+    defaultStatus: 401,
+    message: 'Phiên đăng nhập đã hết hạn hoặc đã bị thu hồi. Vui lòng đăng nhập lại.',
+  },
   AUTH_010: {
     defaultStatus: 403,
     message:
