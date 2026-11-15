@@ -3,8 +3,9 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import net from 'node:net';
 
 export interface MockBackendState {
-  superAdminOutage: boolean;
+  platformAdminOutage: boolean;
   tokenExchangeCalls: number;
+  refreshCalls: number;
   logoutCalls: number;
 }
 
@@ -54,7 +55,11 @@ function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>
 
       try {
         const parsed: unknown = JSON.parse(text);
-        resolve(parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {});
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          resolve(Object.fromEntries(Object.entries(parsed)));
+          return;
+        }
+        resolve({});
       } catch {
         resolve({});
       }
@@ -196,6 +201,34 @@ function handleTokenExchange(code: string, response: ServerResponse): void {
   }
 }
 
+function handleTokenRefresh(refreshToken: string, response: ServerResponse): void {
+  if (refreshToken === 'jwt-ta-refresh') {
+    writeJson(response, 200, {
+      success: true,
+      data: {
+        accessToken: 'jwt-ta-access-rotated',
+        refreshToken: 'jwt-ta-refresh-rotated',
+        expiresIn: 300,
+        refreshExpiresIn: 1800,
+        userId: 'user-ta-1',
+        email: 'admin@pk-alpha.vn',
+        fullName: 'Nguyễn Văn An',
+        roles: ['TENANT_ADMIN'],
+        primaryRole: 'TENANT_ADMIN',
+        tenantCode: 'pk-alpha',
+        targetDashboardUrl: '/tenant/dashboard',
+      },
+    });
+    return;
+  }
+
+  writeJson(response, 401, {
+    success: false,
+    errorCode: 'AUTH_008',
+    message: 'Invalid or expired refresh token',
+  });
+}
+
 async function waitForHealth(
   baseUrl: string,
   getServerLogs: () => string,
@@ -224,8 +257,9 @@ async function waitForHealth(
  */
 export async function startE2eServers(): Promise<E2eServerHandle> {
   const state: MockBackendState = {
-    superAdminOutage: false,
+    platformAdminOutage: false,
     tokenExchangeCalls: 0,
+    refreshCalls: 0,
     logoutCalls: 0,
   };
 
@@ -254,7 +288,7 @@ export async function startE2eServers(): Promise<E2eServerHandle> {
     }
 
     if (request.method === 'GET' && pathName === '/api/v1/auth/superadmin/login-url') {
-      if (state.superAdminOutage) {
+      if (state.platformAdminOutage) {
         writeJson(response, 503, {
           success: false,
           errorCode: 'AUTH_011',
@@ -286,6 +320,14 @@ export async function startE2eServers(): Promise<E2eServerHandle> {
       return;
     }
 
+    if (request.method === 'POST' && pathName === '/api/v1/auth/refresh') {
+      state.refreshCalls += 1;
+      const body = await readJsonBody(request);
+      const refreshToken = typeof body.refreshToken === 'string' ? body.refreshToken : '';
+      handleTokenRefresh(refreshToken, response);
+      return;
+    }
+
     if (request.method === 'POST' && pathName === '/api/v1/auth/logout') {
       state.logoutCalls += 1;
       writeJson(response, 200, { success: true, message: 'OK' });
@@ -295,7 +337,7 @@ export async function startE2eServers(): Promise<E2eServerHandle> {
     if (request.method === 'GET' && pathName.startsWith('/mock-keycloak/')) {
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
-        `<!DOCTYPE html><html lang="vi"><body><main><h1 data-testid="mock-keycloak">${pathName}</h1></main></body></html>`
+        `<!doctype html><html lang="vi"><body><main><h1 data-testid="mock-keycloak">${pathName}</h1></main></body></html>`
       );
       return;
     }
@@ -357,8 +399,9 @@ export async function startE2eServers(): Promise<E2eServerHandle> {
     mockUrl,
     state,
     resetState: () => {
-      state.superAdminOutage = false;
+      state.platformAdminOutage = false;
       state.tokenExchangeCalls = 0;
+      state.refreshCalls = 0;
       state.logoutCalls = 0;
     },
     stop: async () => {
