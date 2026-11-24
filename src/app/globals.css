@@ -1,0 +1,65 @@
+@import 'tailwindcss';
+
+:root {
+  --font-sans: 'Be Vietnam Pro', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Operational & customer light mode tokens */
+  --color-canvas-light: #f8fafc;
+  --color-canvas-customer: #eff6ff;
+  --color-surface-light: #ffffff;
+  --color-primary-operational: #2563eb;
+  --color-primary-operational-strong: #1e40af;
+  --color-text-strong: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748b;
+  --color-border-light: #e2e8f0;
+  --color-border-selected: #bfdbfe;
+
+  /* Platform command dark mode tokens */
+  --color-canvas-platform: #0b0f19;
+  --color-surface-platform: #111827;
+  --color-border-platform: #1e293b;
+  --color-accent-platform: #6366f1;
+  --color-text-platform: #f8fafc;
+
+  /* Semantic light-mode surface tints */
+  --color-tint-blue: #eff6ff;
+  --color-tint-emerald: #ecfdf5;
+  --color-tint-amber: #fffbeb;
+  --color-tint-red: #fef2f2;
+  --color-tint-neutral: #f1f5f9;
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05), 0 0 0 1px #e2e8f0;
+  --shadow-hover:
+    0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04), 0 0 0 1px #cbd5e1;
+  --shadow-modal:
+    0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.05),
+    0 0 0 1px #e2e8f0;
+}
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+body {
+  font-family: var(--font-sans);
+  line-height: 1.6;
+}
+
+.font-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
